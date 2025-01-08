@@ -7,7 +7,7 @@ import time
 from wordcloud import WordCloud
 
 
-engine = create_engine("")
+engine = create_engine("mysql+pymysql://d52:DinGrogu@xo.zipcode.rocks:3388/data_52")
 
 
 def fetch_data():
