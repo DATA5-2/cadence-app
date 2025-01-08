@@ -1,113 +1,93 @@
 import os
 import json
-from sqlalchemy import create_engine, MetaData, Table, Column, String, Float, Integer
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.dialects.mysql import VARCHAR
+import pymysql
+from sqlalchemy import create_engine, text
 
-# Database configuration
-DATABASE_URI = "mysql+pymysql://d52:DinGrogu@xo.zipcode.rocks:3388/data_52"
+# Local MySQL connection details
+DATABASE_URI = "mysql+pymysql://ulasnew:password@localhost:3306/cadenceDB"
 
-# Directory containing JSON files
-json_dir = '/Users/uyakut/Desktop/CaDence-old/scripts'
+# Setup SQLAlchemy engine
+engine = create_engine(DATABASE_URI)
+conn = engine.connect()
 
-# Constants
+# JSON directory (for demonstration purposes, set to a local directory)
+json_dir = '/Users/uyakut/Desktop/CaDence-old/scripts'  # Update this path to where your JSON files are located
+
 MAX_ARTIST_LENGTH = 512
 MAX_SONG_LENGTH = 512
 
-# State to timezone mapping
-STATE_TO_TIMEZONE = {
-    'CA': 'Pacific', 'OR': 'Pacific', 'WA': 'Pacific', 'NV': 'Pacific',
-    'AZ': 'Mountain', 'CO': 'Mountain', 'ID': 'Mountain', 'MT': 'Mountain',
-    'NM': 'Mountain', 'UT': 'Mountain', 'WY': 'Mountain',
-    'AL': 'Central', 'AR': 'Central', 'IA': 'Central', 'IL': 'Central',
-    'IN': 'Central', 'KS': 'Central', 'KY': 'Central', 'LA': 'Central',
-    'MN': 'Central', 'MS': 'Central', 'MO': 'Central', 'ND': 'Central',
-    'NE': 'Central', 'OK': 'Central', 'SD': 'Central', 'TN': 'Central',
-    'TX': 'Central', 'WI': 'Central', 'CT': 'Eastern', 'DE': 'Eastern',
-    'FL': 'Eastern', 'GA': 'Eastern', 'IN': 'Eastern', 'KY': 'Eastern',
-    'MA': 'Eastern', 'MD': 'Eastern', 'ME': 'Eastern', 'MI': 'Eastern',
-    'NC': 'Eastern', 'NH': 'Eastern', 'NJ': 'Eastern', 'NY': 'Eastern',
-    'OH': 'Eastern', 'PA': 'Eastern', 'RI': 'Eastern', 'SC': 'Eastern',
-    'VT': 'Eastern', 'VA': 'Eastern', 'WV': 'Eastern', 'AK': 'Alaska',
-    'HI': 'Hawaii'
-}
-
-# Connect to the database
-engine = create_engine(DATABASE_URI)
-metadata = MetaData()
-
-# Define the table
-all_data_table = Table(
-    'all_data', metadata,
-    Column('artist', VARCHAR(MAX_ARTIST_LENGTH)),
-    Column('song', VARCHAR(MAX_SONG_LENGTH)),
-    Column('level', String(255)),
-    Column('timezone', String(50)),
-    Column('userId', Integer),
-    Column('gender', String(10)),
-    Column('file_number', Integer),
-    Column('duration', Float),
-    Column('itemInSession', Integer),
-    Column('platform', String(10))  # New column for Mobile/Desktop
+# Create table if it doesn't exist
+create_table_query = """
+CREATE TABLE IF NOT EXISTS `all_data` (
+    artist VARCHAR(512),
+    song VARCHAR(512),
+    level VARCHAR(255),
+    timezone VARCHAR(255),
+    userId INT,
+    gender VARCHAR(10),
+    file_number INT,
+    duration FLOAT,
+    itemInSession INT,
+    platform VARCHAR(10)
 )
+"""
 
-# Create the table if it doesn't exist
-metadata.create_all(engine)
-print("Table `all_data` checked/created successfully.")
+# Execute the query to create the table
+conn.execute(text(create_table_query))
 
-# Function to determine platform from user agent
-def get_platform(user_agent):
-    """Determine platform from user agent string."""
-    if any(keyword in user_agent for keyword in ["Mobile", "Android", "iPhone"]):
-        return "Mobile"
-    return "Desktop"
+def insert_data_into_all_data(data, file_number):
+    insert_query = """
+    INSERT INTO `all_data` (artist, song, level, timezone, userId, gender, file_number, duration, itemInSession, platform)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """
+    try:
+        # Extracting values from the dictionary and placing them in the correct order
+        artist = data.get('artist', '')
+        song = data.get('song', '')
+        level = data.get('level', '')
+        timezone = data.get('timezone', '')
+        userId = data.get('userId', 0)
+        gender = data.get('gender', '')
+        duration = data.get('duration', 0)
+        itemInSession = data.get('itemInSession', 0)
+        platform = data.get('platform', '')
 
-# Function to process JSON data and insert into the database
+        # Truncate artist and song if they exceed max length
+        if len(artist) > MAX_ARTIST_LENGTH:
+            artist = artist[:MAX_ARTIST_LENGTH]
+
+        if len(song) > MAX_SONG_LENGTH:
+            song = song[:MAX_SONG_LENGTH]
+
+        # Insert the data with file_number
+        values = (artist, song, level, timezone, userId, gender, file_number, duration, itemInSession, platform)
+        conn.execute(insert_query, values)
+        print(f"Inserted: {artist} - {song}")  # Debugging print
+    except pymysql.MySQLError as e:
+        print(f"Error inserting data into `all_data`: {e}")
+
+
+# Function to process each JSON file
 def process_json_file(file_path, file_number):
     print(f"Processing file: {file_path}")
     
-    with engine.connect() as connection:
-        with open(file_path, 'r') as file:
-            line_number = 0
-            for line in file:
-                line_number += 1
-                try:
-                    # Parse each line as JSON
-                    data = json.loads(line.strip())
-                    
-                    # Extract data and calculate derived fields
-                    artist = data.get('artist', '')[:MAX_ARTIST_LENGTH]
-                    song = data.get('song', '')[:MAX_SONG_LENGTH]
-                    level = data.get('level', '')
-                    state = data.get('state', '')
-                    timezone = STATE_TO_TIMEZONE.get(state, 'Unknown')
-                    userId = data.get('userId', 0)
-                    gender = data.get('gender', '')
-                    duration = data.get('duration', 0.0)
-                    itemInSession = data.get('itemInSession', 0)
-                    userAgent = data.get('userAgent', '')
-                    platform = get_platform(userAgent)
-                    
-                    # Insert data into the table
-                    insert_query = all_data_table.insert().values(
-                        artist=artist,
-                        song=song,
-                        level=level,
-                        timezone=timezone,
-                        userId=userId,
-                        gender=gender,
-                        file_number=file_number,
-                        duration=duration,
-                        itemInSession=itemInSession,
-                        platform=platform
-                    )
-                    connection.execute(insert_query)
-                except json.JSONDecodeError as e:
-                    print(f"Error decoding JSON at line {line_number} in file {file_path}: {e}")
-                except SQLAlchemyError as e:
-                    print(f"Error inserting data into `all_data`: {e}")
-                except Exception as e:
-                    print(f"Unexpected error at line {line_number} in file {file_path}: {e}")
+    # Read and process the JSON file line by line
+    with open(file_path, 'r') as file:
+        line_number = 0
+        for line in file:
+            line_number += 1
+            if line_number > 10:  # Limit to 10 records
+                break
+            try:
+                # Parse each line as a separate JSON object
+                data = json.loads(line.strip())  # Each line should be a separate JSON object
+                print(f"Parsed Data (Line {line_number}): {data}")  # Debug print
+                # Insert the parsed data into the all_data table
+                insert_data_into_all_data(data, file_number)
+            except json.JSONDecodeError as e:
+                print(f"Error decoding JSON at line {line_number} in file {file_path}: {e}")
+            except Exception as e:
+                print(f"Error processing line {line_number} in file {file_path}: {e}")
 
 # Iterate through all files in the JSON directory
 for filename in os.listdir(json_dir):
@@ -119,5 +99,12 @@ for filename in os.listdir(json_dir):
         except ValueError:
             file_number = 0  # Default to 0 if no number is found
         process_json_file(file_path, file_number)
+
+# Commit the changes and close the connection
+conn.commit()  # Commit the transaction to ensure data is saved
+print("Data insertion complete.")
+
+# Close connection
+conn.close()
 
 print("Finished processing all JSON files.")
