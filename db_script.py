@@ -1,110 +1,206 @@
-import os
+import mysql.connector
 import json
-import pymysql
-from sqlalchemy import create_engine, text
+import os
+import glob
+import re
 
-# Local MySQL connection details
-DATABASE_URI = "mysql+pymysql://ulasnew:password@localhost:3306/cadenceDB"
+# Database connection details
+db_config = {
+    "host": "localhost",
+    "user": "ulasnew",
+    "password": "password",
+    "database": "cadenceDB"
+}
 
-# Setup SQLAlchemy engine
-engine = create_engine(DATABASE_URI)
-conn = engine.connect()
+# U.S. state-to-timezone mapping
+state_timezones = {
+    "Hawaii": "Hawaii-Aleutian Standard Time",
+    "Alaska": "Alaska Standard Time",
+    "California": "Pacific Standard Time",
+    "Washington": "Pacific Standard Time",
+    "Oregon": "Pacific Standard Time",
+    "Nevada": "Pacific Standard Time",
+    "Idaho": "Mountain Standard Time",
+    "Arizona": "Mountain Standard Time",
+    "New Mexico": "Mountain Standard Time",
+    "Colorado": "Mountain Standard Time",
+    "Texas": "Central Standard Time",
+    "Oklahoma": "Central Standard Time",
+    "Kansas": "Central Standard Time",
+    "Nebraska": "Central Standard Time",
+    "Missouri": "Central Standard Time",
+    "Iowa": "Central Standard Time",
+    "Minnesota": "Central Standard Time",
+    "Wisconsin": "Central Standard Time",
+    "Illinois": "Central Standard Time",
+    "Indiana": "Eastern Standard Time",
+    "Ohio": "Eastern Standard Time",
+    "Michigan": "Eastern Standard Time",
+    "Kentucky": "Eastern Standard Time",
+    "Tennessee": "Eastern Standard Time",
+    "North Carolina": "Eastern Standard Time",
+    "South Carolina": "Eastern Standard Time",
+    "Georgia": "Eastern Standard Time",
+    "Florida": "Eastern Standard Time",
+    "Virginia": "Eastern Standard Time",
+    "Maryland": "Eastern Standard Time",
+    "Pennsylvania": "Eastern Standard Time",
+    "New York": "Eastern Standard Time",
+    "New Jersey": "Eastern Standard Time",
+    "Connecticut": "Eastern Standard Time",
+    "Massachusetts": "Eastern Standard Time",
+    "Rhode Island": "Eastern Standard Time",
+    "Vermont": "Eastern Standard Time",
+    "Maine": "Eastern Standard Time",
+    "Delaware": "Eastern Standard Time",
+    "New Hampshire": "Eastern Standard Time"
+}
 
-# JSON directory (for demonstration purposes, set to a local directory)
-json_dir = '/Users/uyakut/Desktop/CaDence-old/scripts'  # Update this path to where your JSON files are located
+# Function to categorize device type
+def categorize_device(user_agent):
+    mobile_keywords = ['iPhone', 'Android', 'iPad', 'Mobile', 'Windows Phone', 'BlackBerry']
+    for keyword in mobile_keywords:
+        if keyword in user_agent:
+            return "mobile"
+    return "desktop"
 
-MAX_ARTIST_LENGTH = 512
-MAX_SONG_LENGTH = 512
-
-# Create table if it doesn't exist
-create_table_query = """
-CREATE TABLE IF NOT EXISTS `all_data` (
-    artist VARCHAR(512),
-    song VARCHAR(512),
-    level VARCHAR(255),
-    timezone VARCHAR(255),
-    userId INT,
-    gender VARCHAR(10),
-    file_number INT,
-    duration FLOAT,
-    itemInSession INT,
-    platform VARCHAR(10)
-)
-"""
-
-# Execute the query to create the table
-conn.execute(text(create_table_query))
-
-def insert_data_into_all_data(data, file_number):
-    insert_query = """
-    INSERT INTO `all_data` (artist, song, level, timezone, userId, gender, file_number, duration, itemInSession, platform)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    """
-    try:
-        # Extracting values from the dictionary and placing them in the correct order
-        artist = data.get('artist', '')
-        song = data.get('song', '')
-        level = data.get('level', '')
-        timezone = data.get('timezone', '')
-        userId = data.get('userId', 0)
-        gender = data.get('gender', '')
-        duration = data.get('duration', 0)
-        itemInSession = data.get('itemInSession', 0)
-        platform = data.get('platform', '')
-
-        # Truncate artist and song if they exceed max length
-        if len(artist) > MAX_ARTIST_LENGTH:
-            artist = artist[:MAX_ARTIST_LENGTH]
-
-        if len(song) > MAX_SONG_LENGTH:
-            song = song[:MAX_SONG_LENGTH]
-
-        # Insert the data with file_number
-        values = (artist, song, level, timezone, userId, gender, file_number, duration, itemInSession, platform)
-        conn.execute(insert_query, values)
-        print(f"Inserted: {artist} - {song}")  # Debugging print
-    except pymysql.MySQLError as e:
-        print(f"Error inserting data into `all_data`: {e}")
-
-
-# Function to process each JSON file
-def process_json_file(file_path, file_number):
-    print(f"Processing file: {file_path}")
+# Function to categorize platform and operating system
+def categorize_user_agent(user_agent):
+    platforms = {"Windows": "Windows", "Macintosh": "Mac", "Linux": "Linux", "iPhone": "iPhone", "iPad": "iPad", "Android": "Android"}
+    operating_systems = {"Windows NT": "Windows", "Mac OS X": "Mac OS X", "Android": "Android", "iPhone OS": "iOS", "Linux": "Linux"}
     
-    # Read and process the JSON file line by line
-    with open(file_path, 'r') as file:
-        line_number = 0
-        for line in file:
-            line_number += 1
-            if line_number > 10:  # Limit to 10 records
-                break
-            try:
-                # Parse each line as a separate JSON object
-                data = json.loads(line.strip())  # Each line should be a separate JSON object
-                print(f"Parsed Data (Line {line_number}): {data}")  # Debug print
-                # Insert the parsed data into the all_data table
-                insert_data_into_all_data(data, file_number)
-            except json.JSONDecodeError as e:
-                print(f"Error decoding JSON at line {line_number} in file {file_path}: {e}")
-            except Exception as e:
-                print(f"Error processing line {line_number} in file {file_path}: {e}")
+    platform = "Unknown"
+    os = "Unknown"
 
-# Iterate through all files in the JSON directory
-for filename in os.listdir(json_dir):
-    if filename.endswith('.json'):
-        file_path = os.path.join(json_dir, filename)
-        # Extract file number from the filename (e.g., group_1.json -> 1)
-        try:
-            file_number = int(''.join(filter(str.isdigit, filename)))
-        except ValueError:
-            file_number = 0  # Default to 0 if no number is found
-        process_json_file(file_path, file_number)
+    for keyword, value in platforms.items():
+        if keyword in user_agent:
+            platform = value
+            break
 
-# Commit the changes and close the connection
-conn.commit()  # Commit the transaction to ensure data is saved
-print("Data insertion complete.")
+    for keyword, value in operating_systems.items():
+        if keyword in user_agent:
+            os = value
+            break
 
-# Close connection
-conn.close()
+    return platform, os
 
-print("Finished processing all JSON files.")
+# Create MySQL table
+def create_table(cursor):
+    create_table_query = """
+    CREATE TABLE IF NOT EXISTS all_data (
+        artist VARCHAR(255),
+        song VARCHAR(255),
+        length FLOAT,
+        group_number INT,
+        device_type ENUM('mobile', 'desktop') NOT NULL,
+        platform VARCHAR(50),
+        operating_system VARCHAR(50),
+        timezone VARCHAR(50),
+        state VARCHAR(50),
+        user_id INT,
+        gender ENUM('M', 'F', 'Unknown') NOT NULL
+    )
+    """
+    cursor.execute(create_table_query)
+    print("Table `all_data` created or exists already.")
+
+# Function to extract group_number from file name
+def extract_group_number(file_path):
+    match = re.search(r"group_(\d+)", os.path.basename(file_path))
+    return int(match.group(1)) if match else 0
+
+# Process a single JSON file with line-by-line JSON objects
+def process_json_file(cursor, file_path):
+    group_number = extract_group_number(file_path)
+
+    try:
+        with open(file_path, "r") as f:
+            for line in f:
+                if not line.strip():  # Skip empty lines
+                    continue
+                try:
+                    record = json.loads(line.strip())
+                except json.JSONDecodeError as e:
+                    print(f"Skipping invalid JSON in {file_path}: {e}")
+                    continue
+                
+                # Extract data from the JSON record
+                user_agent = record.get("userAgent", "")
+                device_type = categorize_device(user_agent)
+                platform, os = categorize_user_agent(user_agent)
+                length = record.get("duration", 0.0)
+                timezone = record.get("timezone", "Unknown")
+                state = record.get("state", "Unknown")
+                
+                # Map state to timezone if not present
+                if state in state_timezones:
+                    timezone = state_timezones[state]
+                
+                user_id = record.get("userId", 0)
+                gender = record.get("gender", "Unknown")
+
+                # Insert data into the table
+                insert_query = """
+                    INSERT INTO all_data (artist, song, length, group_number, device_type, platform, operating_system, timezone, state, user_id, gender)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """
+                cursor.execute(insert_query, (
+                    record.get("artist", "Unknown"),
+                    record.get("song", "Unknown"),
+                    length,
+                    group_number,
+                    device_type,
+                    platform,
+                    os,
+                    timezone,
+                    state,  # Insert state here
+                    user_id,
+                    gender
+                ))
+        print(f"Processed {file_path} successfully.")
+
+    except Exception as e:
+        print(f"Error processing {file_path}: {e}")
+
+
+# Process all JSON files in a directory in order by group_number
+def process_all_json_files(directory):
+    try:
+        # Connect to MySQL
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor()
+
+        # Create table if it doesn't exist
+        create_table(cursor)
+
+        # Get all JSON files
+        json_files = glob.glob(os.path.join(directory, "group_*.json"))
+        if not json_files:
+            print("No JSON files found in the directory.")
+            return
+
+        # Sort the files based on group_number (ascending)
+        json_files.sort(key=lambda x: extract_group_number(x))
+
+        # Process each JSON file in sorted order
+        for file_path in json_files:
+            process_json_file(cursor, file_path)
+        
+        # Commit changes
+        connection.commit()
+        print("All JSON files processed and data inserted successfully.")
+
+    except mysql.connector.Error as err:
+        print(f"Database error: {err}")
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        if connection.is_connected():
+            cursor.close()
+            connection.close()
+            print("MySQL connection closed.")
+
+# Main function
+if __name__ == "__main__":
+    directory_path = "/Users/uyakut/Desktop/CaDence-old/scripts"  # Replace with the directory containing your JSON files
+    process_all_json_files(directory_path)

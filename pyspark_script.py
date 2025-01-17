@@ -115,11 +115,11 @@ def write_to_results_table(results_df):
     """Write the results to the 'results_table' in MySQL."""
     try:
         results_df.write.format("jdbc") \
-            .option("url", "") \
+            .option("url", "jdbc:mysql://localhost/cadenceDB") \
             .option("driver", "com.mysql.cj.jdbc.Driver") \
-            .option("dbtable", "") \
-            .option("user", "") \
-            .option("password", "") \
+            .option("dbtable", table_name) \
+            .option("user", "ulasnew") \
+            .option("password", "password") \
             .mode("append") \
             .save()
         print("Successfully wrote results to results_table.")

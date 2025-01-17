@@ -7,7 +7,7 @@ import time
 from wordcloud import WordCloud
 
 
-engine = create_engine("mysql+pymysql://d52:DinGrogu@xo.zipcode.rocks:3388/data_52")
+engine = create_engine("")
 
 
 def fetch_data():
@@ -61,10 +61,10 @@ def display_data():
     
     for i, row in df.iterrows():
         
-        male_count = row['male_count']
-        female_count = row['female_count']
-        paid_count = row['paid_count']
-        free_count = row['free_count']
+        male_count = 100*row['male_count']
+        female_count = 100*row['female_count']
+        paid_count = 100*row['paid_count']
+        free_count = 100*row['free_count']
         top_song = row['top_song']  
 
         
